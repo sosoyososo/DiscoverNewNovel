@@ -18,30 +18,37 @@ TODO:
 		c. 下次下载读取数据库，然后获取内容没有获取成功的章节，只获取没有获取成功的内容
 */
 import (
-	"fmt"
+	"time"
 
 	"./Uukanshu"
 )
 
 func main() {
-	// loadData()
-	testSpider()
+	runNovelDiscover()
+	runChapterDiscovery()
+
+	ch := make(chan int, 1)
+	<-ch
 }
 
-func testSpider() {
-	ch := make(chan int, 1)
+// 开始后每24小时执行一次
+func runNovelDiscover() {
+	// TODO: 发现新小说
+	// TODO: 后写入数据库
 	Uukanshu.RunSpider(func() {
-		ch <- 1
+		time.Sleep(24 * time.Hour)
+		runNovelDiscover()
 	})
-	<-ch
-	fmt.Println("结束")
 }
 
-func loadData() {
-	ch := make(chan int, 1)
+// 开始后每小时执行一次
+func runChapterDiscovery() {
+	// TODO: 遍历数据库所有小说
+	// TODO: 获取每个小说的章节列表
+	// TODO: 发现新的章节
+	// TODO: 写入数据库
 	Uukanshu.RunCateFetch("http://www.uukanshu.net/b/11356/", 3, func() {
-		ch <- 1
+		time.Sleep(time.Hour)
+		runChapterDiscovery()
 	})
-	<-ch
-	fmt.Println("结束")
 }
