@@ -20,44 +20,28 @@ TODO:
 import (
 	"fmt"
 
-	"./Encoding"
-	"./HtmlWorker"
-	"./MongoDB"
 	"./Uukanshu"
-	"github.com/PuerkitoBio/goquery"
 )
 
 func main() {
-	loadData()
-	// test()
+	// loadData()
+	testSpider()
 }
 
-func loadData() {
+func testSpider() {
 	ch := make(chan int, 1)
-	Uukanshu.Run("http://www.uukanshu.net/b/11356/", 3, func() {
+	Uukanshu.RunSpider(func() {
 		ch <- 1
 	})
 	<-ch
 	fmt.Println("结束")
 }
 
-func test() {
-	contentAction := HtmlWorker.NewAction("#chapterList > li", func(s *goquery.Selection) {
-		s.Each(func(index int, sel *goquery.Selection) {
-			content := s.Text()
-			fmt.Println(content)
-		})
+func loadData() {
+	ch := make(chan int, 1)
+	Uukanshu.RunCateFetch("http://www.uukanshu.net/b/11356/", 3, func() {
+		ch <- 1
 	})
-
-	url := "http://www.uukanshu.net/b/11356/"
-	worker := HtmlWorker.New(url, []HtmlWorker.WorkerAction{contentAction})
-	worker.CookieStrig = "ASP.NET_SessionId=33o4lgiftcbae54smwa1cbzk; lastread=11356%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.475465301.1495266639; fcip=111"
-	worker.Encoder = func(buffer []byte) ([]byte, error) {
-		return Encoding.GbkToUtf8(buffer)
-	}
-	worker.Run()
-}
-
-func testMongo() {
-	MongoDB.TestMongo()
+	<-ch
+	fmt.Println("结束")
 }

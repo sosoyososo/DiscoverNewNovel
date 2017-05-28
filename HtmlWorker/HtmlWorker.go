@@ -39,6 +39,7 @@ type Worker struct {
 	CookieStrig string
 	Encoder     func(s []byte) ([]byte, error)
 	OnFail      func(err error)
+	OnFinish    func()
 }
 
 /*
@@ -77,11 +78,12 @@ func (w *Worker) Run() {
 	buffer, err := w.getUtf8HtmlBytesFromURL()
 	if nil == err {
 		w.doWork(buffer)
+		if nil != w.OnFinish {
+			w.OnFinish()
+		}
 	} else {
 		if nil != w.OnFail {
 			w.OnFail(err)
-		} else {
-			fmt.Print(err)
 		}
 	}
 }
@@ -111,7 +113,6 @@ func (w *Worker) getUtf8HtmlBytesFromURL() ([]byte, error) {
 	tr := &http.Transport{
 		DisableCompression: true,
 	}
-
 	var client = &http.Client{Transport: tr}
 	resp, err := client.Do(req)
 	if err != nil {
