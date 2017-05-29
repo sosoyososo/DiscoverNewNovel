@@ -250,11 +250,11 @@ func fullURL(url string) string {
 func findNovelURL(catelogURL string) {
 	dbWorker.AddAction(func() {
 		novels := novelDb.C("novels")
-		count, err := novels.Find(bson.M{"url": catelogURL}).Count()
+		cateURL := fullURL(catelogURL)
+		count, err := novels.Find(bson.M{"url": cateURL}).Count()
 		if nil != err || count == 0 { //找到新的小说后，获取小说信息，将之更新到数据库
 			fmt.Printf("发现新小说:%s\n", catelogURL)
 
-			cateURL := fullURL(catelogURL)
 			novel := NovelInfo{}
 			novel.URL = cateURL
 			novelCollection := novelDb.C("novels")
