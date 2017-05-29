@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"../AsynWorker"
 	"../Discover"
 	"../Encoding"
 	"../HtmlWorker"
@@ -24,6 +25,21 @@ type ChapterInfo struct {
 }
 
 /*
+Action 获取章节内容
+*/
+func (c ChapterInfo) Action() {
+	contentAction := HtmlWorker.NewAction("div.contentbox", func(s *goquery.Selection) {
+		fmt.Println(c.Title)
+	})
+	worker := HtmlWorker.New(c.URL, []HtmlWorker.WorkerAction{contentAction})
+	worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
+	worker.Encoder = func(buffer []byte) ([]byte, error) {
+		return Encoding.GbkToUtf8(buffer)
+	}
+	worker.Run()
+}
+
+/*
 NovelInfo 保存小说信息
 */
 type NovelInfo struct {
@@ -32,104 +48,6 @@ type NovelInfo struct {
 	Author   string
 	Summary  string
 	CoverImg string
-}
-
-/*
-Action 获取章节内容
-*/
-func (c ChapterInfo) Action() {
-	contentAction := HtmlWorker.NewAction("div.contentbox", func(s *goquery.Selection) {
-		fmt.Println(c.Title)
-	})
-	worker := HtmlWorker.New(c.URL, []HtmlWorker.WorkerAction{contentAction})
-	worker.CookieStrig = "ASP.NET_SessionId=azxql35ktrk12lqlleegfrus; lastread=55516%3D0%3D; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.1926814091.1494322381; fcip=111"
-	worker.Encoder = func(buffer []byte) ([]byte, error) {
-		return Encoding.GbkToUtf8(buffer)
-	}
-	worker.Run()
-}
-
-/*
-RunCateFetch 使用一个 Uukanshu 的目录页面 url，读取小说信息，读取目录列表
-*/
-func RunCateFetch(cateURL string, routineCount int, finished func()) {
-	// 打开数据库连接
-	session, err := mgo.Dial("127.0.0.1:27017")
-	if err != nil {
-		panic(err)
-	}
-	db := session.DB("novel")
-
-	novel := NovelInfo{}
-	novel.URL = cateURL
-	novelCollection := db.C("novels")
-	err = novelCollection.Insert(&novel)
-	if err != nil {
-		fmt.Println("DB 操作失败")
-		return
-	}
-
-	titleAction := HtmlWorker.NewAction("dd > h1 > a", func(s *goquery.Selection) {
-		err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"title": s.Text()}})
-		if err != nil {
-			fmt.Println("标题更新失败")
-		}
-	})
-	coverAction := HtmlWorker.NewAction(".jieshao > dt > a > img", func(s *goquery.Selection) {
-		url, isExist := s.Attr("src")
-		if isExist {
-			err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"coverimg": url}})
-			if err != nil {
-				fmt.Println("封面更新失败")
-			}
-		}
-	})
-	summaryAction := HtmlWorker.NewAction("dd > h3", func(s *goquery.Selection) {
-		err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"summary": s.Text()}})
-		if err != nil {
-			fmt.Println("摘要更新失败")
-		}
-	})
-	authorAction := HtmlWorker.NewAction("dd > h2 > a", func(s *goquery.Selection) {
-		err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"author": s.Text()}})
-		if err != nil {
-			fmt.Println("作者更新失败")
-		}
-	})
-	chaptersAction := HtmlWorker.NewAction("#chapterList > li > a", func(s *goquery.Selection) {
-		c := db.C("chapters")
-		s.Each(func(index int, aTag *goquery.Selection) {
-			// aTag := s.Find("a")
-			url, isExist := aTag.Attr("href")
-			title := aTag.Text()
-			fmt.Printf("第%d个插入\n", index)
-			if isExist {
-				chapter := ChapterInfo{}
-				chapter.CateURL = cateURL
-				chapter.Index = index
-				chapter.URL = "http://www.uukanshu.net" + url
-				chapter.Title = title
-
-				err := c.Insert(&chapter)
-				if err != nil {
-					fmt.Printf("DB 操作失败 : %s %s\n ", title, err.Error())
-				} else {
-					fmt.Println(title)
-				}
-			}
-		})
-
-		if finished != nil {
-			finished()
-		}
-	})
-
-	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{titleAction, coverAction, authorAction, summaryAction, chaptersAction})
-	worker.CookieStrig = "ASP.NET_SessionId=azxql35ktrk12lqlleegfrus; lastread=55516%3D0%3D; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.1926814091.1494322381; fcip=111"
-	worker.Encoder = func(buffer []byte) ([]byte, error) {
-		return Encoding.GbkToUtf8(buffer)
-	}
-	go worker.Run()
 }
 
 type spiderRecorder struct {
@@ -153,6 +71,94 @@ func (s *spiderRecorder) setTime(time.Time) {
 	s.Time = time.Now().Format(longForm)
 }
 
+var (
+	dbSession       *mgo.Session
+	novelDb         *mgo.Database
+	dbWorker        *AsynWorker.SynWorker
+	novelInfoWorker *AsynWorker.AsynWorker
+)
+
+func connectToDbIfNeed() {
+	if dbSession == nil {
+		dbSession, err := mgo.Dial("127.0.0.1:27017")
+		if err != nil {
+			panic(err)
+		}
+		novelDb = dbSession.DB("novel")
+	}
+}
+
+func createDBWorkerInfoNeeded() {
+	if dbWorker == nil {
+		dbWorker = &AsynWorker.SynWorker{}
+	}
+}
+
+/*
+RunCateFetch 使用一个 Uukanshu 的目录页面 url，读取小说信息，读取目录列表
+*/
+func runNovelInfoFetch(cateURL string, routineCount int, finished func()) {
+	connectToDbIfNeed()
+	db := novelDb
+
+	cateURL = fullURL(cateURL)
+	novelCollection := db.C("novels")
+
+	titleAction := HtmlWorker.NewAction("dd > h1 > a", func(s *goquery.Selection) {
+		dbWorker.AddAction(func() {
+			err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"title": s.Text()}})
+			if err != nil {
+				fmt.Println("标题更新失败")
+			}
+			fmt.Println("更新标题")
+		})
+	})
+	coverAction := HtmlWorker.NewAction(".jieshao > dt > a > img", func(s *goquery.Selection) {
+		url, isExist := s.Attr("src")
+		if isExist {
+			dbWorker.AddAction(func() {
+				err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"coverimg": url}})
+				if err != nil {
+					fmt.Println("封面更新失败")
+				}
+				fmt.Println("更新封面")
+			})
+		}
+	})
+	summaryAction := HtmlWorker.NewAction("dd > h3", func(s *goquery.Selection) {
+		dbWorker.AddAction(func() {
+			err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"summary": s.Text()}})
+			if err != nil {
+				fmt.Println("摘要更新失败")
+			}
+			fmt.Println("更新摘要")
+		})
+	})
+	authorAction := HtmlWorker.NewAction("dd > h2 > a", func(s *goquery.Selection) {
+		dbWorker.AddAction(func() {
+			err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"author": s.Text()}})
+			if err != nil {
+				fmt.Println("作者更新失败")
+			}
+			fmt.Println("更新作者")
+		})
+	})
+
+	fmt.Printf("发现新小说%s\n", cateURL)
+	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{titleAction, coverAction, authorAction, summaryAction})
+	worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
+	worker.Encoder = func(buffer []byte) ([]byte, error) {
+		return Encoding.GbkToUtf8(buffer)
+	}
+	if novelInfoWorker == nil {
+		asynWorker := AsynWorker.New()
+		novelInfoWorker = &asynWorker
+	}
+	novelInfoWorker.AddHandlerTask(func() {
+		worker.Run()
+	})
+}
+
 /*
 RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录页面
 注意:
@@ -160,65 +166,103 @@ RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录�
 	每个页面1个小时内最多遍历1次
 	发现新的小说目录页面，应该发出通知
 */
+
+/*
+DiscoverNewChapters 遍历所有小说，获取目录页，遍历章节，发现新的章节
+*/
+// TODO: 遍历数据库所有小说
+// TODO: 获取每个小说的章节列表
+// TODO: 发现新的章节
+// TODO: 写入数据库
+func DiscoverNewChapters(finish func()) {
+}
+
+/*
+RunSpider 启动发现小说的爬虫
+*/
 func RunSpider(finished func()) {
-	session, err := mgo.Dial("127.0.0.1:27017")
-	if err != nil {
-		panic(err)
-	}
-	db := session.DB("novel")
-	uuCollection := db.C("uukanshu_urls")
+	connectToDbIfNeed()
+	createDBWorkerInfoNeeded()
 
 	d := Discover.Worker{}
 	d.Run("http://www.uukanshu.net/",
 		4,
 		func(url string) bool {
-			fmt.Println(url)
-			if strings.HasPrefix(url, "/") || strings.HasPrefix(url, "./") {
-				query := uuCollection.Find(bson.M{"url": url})
-				count, err := query.Count()
-				if err == nil {
-					if count > 0 {
-						record := spiderRecorder{}
-						query.One(&record)
-
-						t := record.getTime()
-						if t != nil {
-							duration := time.Since(*t)
-							if duration < 60*60 {
-								return false
-							}
-						}
-					}
-				}
-				return true
-			}
-			return false
+			return isInsiteURL(url) == true && isPicURL(url) == false
 		},
 		func(worker *HtmlWorker.Worker) {
-			worker.CookieStrig = "ASP.NET_SessionId=33o4lgiftcbae54smwa1cbzk; lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; fcip=111; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.458374049.1495553756; _gat=1"
+			worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
 			worker.Encoder = func(buffer []byte) ([]byte, error) {
 				return Encoding.GbkToUtf8(buffer)
 			}
 		},
 		func(url string) string {
-			record := spiderRecorder{}
-			record.URL = url
-			record.setTime(time.Now())
-
-			query := uuCollection.Find(bson.M{"url": url})
-			count, _ := query.Count()
-			if count > 0 {
-				uuCollection.Update(bson.M{"url": url}, bson.M{"$set": bson.M{"time": record.Time}})
-			} else {
-				uuCollection.Insert(&record)
+			if isCatelogURL(url) { //如果是目录URL，走找到小说的路径
+				findNovelURL(url)
 			}
-
-			if strings.HasPrefix(url, "/") {
-				return "http://www.uukanshu.net" + url
-			}
-
-			return url
+			return fullURL(url)
 		},
 		finished)
+}
 
+func isInsiteURL(URL string) bool {
+	if strings.HasPrefix(URL, "/") || strings.HasPrefix(URL, "../") || strings.HasPrefix(URL, "http://www.uukanshu.net") || strings.HasPrefix(URL, "www.uukanshu.net") {
+		return true
+	}
+	return false
+}
+
+func isPicURL(URL string) bool {
+	if strings.HasSuffix(URL, ".jpg") || strings.HasSuffix(URL, ".png") {
+		return true
+	}
+	return false
+}
+
+func isCatelogURL(URL string) bool {
+	if strings.HasPrefix(URL, "/b") {
+		if strings.HasSuffix(URL, ".html") {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func fullURL(url string) string {
+	if strings.HasPrefix(url, "www.") {
+		return url
+	}
+	if strings.HasPrefix(url, "http://") {
+		return url
+	}
+	if strings.HasPrefix(url, "/") {
+		return "http://www.uukanshu.net" + url
+	}
+	if strings.HasPrefix(url, "./") {
+		url = strings.TrimLeft(url, ".")
+		return "http://www.uukanshu.net" + url
+	}
+	fmt.Println("无法处理的url: " + url)
+	return url
+}
+
+func findNovelURL(catelogURL string) {
+	dbWorker.AddAction(func() {
+		novels := novelDb.C("novels")
+		count, err := novels.Find(bson.M{"url": catelogURL}).Count()
+		if nil != err || count == 0 { //找到新的小说后，获取小说信息，将之更新到数据库
+			fmt.Printf("发现新小说:%s\n", catelogURL)
+
+			cateURL := fullURL(catelogURL)
+			novel := NovelInfo{}
+			novel.URL = cateURL
+			novelCollection := novelDb.C("novels")
+
+			err := novelCollection.Insert(&novel)
+			if err != nil {
+				fmt.Println("插入小说失败")
+			}
+		}
+	})
 }

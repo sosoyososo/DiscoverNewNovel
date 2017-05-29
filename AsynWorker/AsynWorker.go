@@ -54,8 +54,8 @@ New 使用默认值创建一个 Worker
 func New() AsynWorker {
 	w := AsynWorker{}
 	w.taskQueue = make(chan Task, 200)
-	w.MaxRoutineCount = 5
-	w.RoutineWaitTimeOut = 3
+	w.MaxRoutineCount = 3
+	w.RoutineWaitTimeOut = 20
 	w.runningCount = 0
 	w.StopedActopn = func() {
 	}

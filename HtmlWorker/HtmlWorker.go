@@ -149,3 +149,10 @@ func (w *Worker) doWork(buffer []byte) {
 		action.Action(doc.Find(action.Selector))
 	}
 }
+
+/*
+GetCookies 请求网站失败的时候，重新去获取一遍新的cookie
+*/
+func GetCookies(url string) string {
+	return ""
+}

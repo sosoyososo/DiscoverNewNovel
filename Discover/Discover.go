@@ -3,6 +3,8 @@ package Discover
 import (
 	"fmt"
 
+	"time"
+
 	"../AsynWorker"
 	"../HtmlWorker"
 	"github.com/PuerkitoBio/goquery"
@@ -12,6 +14,8 @@ import (
 Worker is a queue, which can be added in some task to be excuted
 */
 type Worker struct {
+	visitedURLList []string
+	listLock       chan int
 }
 
 /*
@@ -23,6 +27,10 @@ func (w *Worker) Run(entryURL string,
 	configHTMLWorker func(*HtmlWorker.Worker),
 	urlConvert func(string) string,
 	finish func()) {
+
+	w.visitedURLList = []string{}
+	w.listLock = make(chan int, 1)
+	w.listLock <- 1
 
 	taskQueue := AsynWorker.New()
 	taskQueue.MaxRoutineCount = workerCount
@@ -48,7 +56,12 @@ func (w *Worker) runPage(asynWorker AsynWorker.AsynWorker,
 			href, isexist := s.Attr("href")
 			if isexist {
 				if shouldContinueOnURL(href) {
+					if w.addURLUnVisitedIfNoExist(href) == false {
+						fmt.Printf("访问过的url: %s\n", href)
+						return
+					}
 					href = urlConvert(href)
+					time.Sleep(time.Second) //停止一秒，减少爬虫对服务器压力
 					asynWorker.AddHandlerTask(func() {
 						w.runPage(asynWorker,
 							href,
@@ -57,6 +70,7 @@ func (w *Worker) runPage(asynWorker AsynWorker.AsynWorker,
 							urlConvert)
 					})
 				}
+				fmt.Printf("放弃url: %s\n", href)
 			}
 		})
 	})
@@ -64,12 +78,26 @@ func (w *Worker) runPage(asynWorker AsynWorker.AsynWorker,
 	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
 		fmt.Println(err)
-		// fmt.Printf("faech fail %s\n", url)
 	}
 	worker.OnFinish = func() {
-		// fmt.Printf("end fetch %s\n", url)
 	}
 
 	fmt.Printf("start fetch %s\n", url)
 	worker.Run()
+}
+
+func (w *Worker) addURLUnVisitedIfNoExist(url string) bool {
+	<-w.listLock
+	fmt.Println("lock")
+	for i := 0; i < len(w.visitedURLList); i++ {
+		if w.visitedURLList[i] == url {
+			w.listLock <- 1
+			fmt.Println("unlock")
+			return false
+		}
+	}
+	w.visitedURLList = append(w.visitedURLList, url)
+	w.listLock <- 1
+	fmt.Println("unlock")
+	return true
 }
