@@ -185,7 +185,7 @@ func RunSpider(finished func()) {
 	createDBWorkerInfoNeeded()
 
 	d := Discover.Worker{}
-	d.Run("http://www.uukanshu.net/",
+	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
 		4,
 		func(url string) bool {
 			return isInsiteURL(url) == true && isPicURL(url) == false
