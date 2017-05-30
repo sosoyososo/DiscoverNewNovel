@@ -188,6 +188,9 @@ func RunSpider(finished func()) {
 	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
 		4,
 		func(url string) bool {
+			if strings.HasPrefix(url, "http://www") {
+				fmt.Println("")
+			}
 			return isInsiteURL(url) == true && isPicURL(url) == false
 		},
 		func(worker *HtmlWorker.Worker) {
@@ -206,14 +209,18 @@ func RunSpider(finished func()) {
 }
 
 func isInsiteURL(URL string) bool {
-	if strings.HasPrefix(URL, "/") || strings.HasPrefix(URL, "../") || strings.HasPrefix(URL, "http://www.uukanshu.net") || strings.HasPrefix(URL, "www.uukanshu.net") {
+	if strings.HasPrefix(URL, "/") ||
+		strings.HasPrefix(URL, "../") ||
+		strings.HasPrefix(URL, "http://www.uukanshu.net") ||
+		strings.HasPrefix(URL, "www.uukanshu.net") {
 		return true
 	}
 	return false
 }
 
 func isPicURL(URL string) bool {
-	if strings.HasSuffix(URL, ".jpg") || strings.HasSuffix(URL, ".png") {
+	if strings.HasSuffix(URL, ".jpg") ||
+		strings.HasSuffix(URL, ".png") {
 		return true
 	}
 	return false

@@ -113,6 +113,7 @@ func (w *Worker) getUtf8HtmlBytesFromURL() ([]byte, error) {
 	tr := &http.Transport{
 		DisableCompression: true,
 	}
+
 	var client = &http.Client{Transport: tr}
 	resp, err := client.Do(req)
 	if err != nil {

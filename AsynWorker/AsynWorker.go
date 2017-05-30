@@ -65,7 +65,7 @@ func New() AsynWorker {
 /*
 AddHandlerTask 一个操作直接作为任务加入
 */
-func (w AsynWorker) AddHandlerTask(hanlder func()) {
+func (w *AsynWorker) AddHandlerTask(hanlder func()) {
 	task := DefaultTask{}
 	task.action = hanlder
 	w.taskQueue <- task
@@ -79,7 +79,7 @@ func (w AsynWorker) AddHandlerTask(hanlder func()) {
 /*
 AddTask 新增一个任务
 */
-func (w AsynWorker) AddTask(t Task) {
+func (w *AsynWorker) AddTask(t Task) {
 	w.taskQueue <- t
 
 	if w.runningCount < w.MaxRoutineCount {
