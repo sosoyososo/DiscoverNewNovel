@@ -69,8 +69,9 @@ func (w *Worker) runPage(asynWorker AsynWorker.AsynWorker,
 							configHTMLWorker,
 							urlConvert)
 					})
+				} else {
+					fmt.Printf("放弃url: %s\n", href)
 				}
-				fmt.Printf("放弃url: %s\n", href)
 			}
 		})
 	})

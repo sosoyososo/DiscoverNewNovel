@@ -188,9 +188,6 @@ func RunSpider(finished func()) {
 	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
 		4,
 		func(url string) bool {
-			if strings.HasPrefix(url, "http://www") {
-				fmt.Println("")
-			}
 			return isInsiteURL(url) == true && isPicURL(url) == false
 		},
 		func(worker *HtmlWorker.Worker) {
