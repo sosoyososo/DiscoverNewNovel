@@ -68,11 +68,27 @@ RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录�
 /*
 DiscoverNewChapters 遍历所有小说，获取目录页，遍历章节，发现新的章节
 */
-// TODO: 遍历数据库所有小说
 // TODO: 获取每个小说的章节列表
 // TODO: 发现新的章节
 // TODO: 写入数据库
 func DiscoverNewChapters(finish func()) {
+	connectToDbIfNeed()
+	createDBWorkerInfoNeeded()
+
+	novelCollection := novelDb.C("novels")
+	iter := novelCollection.Find(bson.M{}).Iter()
+
+	// chaptersCollection := novelDb.C("chapters")
+
+	asynWorker := AsynWorker.New()
+	result := NovelInfo{}
+
+	for iter.Next(&result) {
+		if len(result.URL) > 0 {
+			asynWorker.AddHandlerTask(func() {
+			})
+		}
+	}
 }
 
 /*
@@ -88,10 +104,8 @@ func CollecteNovelInfo(finish func()) {
 	asynWorker := AsynWorker.New()
 	result := NovelInfo{}
 
-	index := 0
 	runingCount := 0
 	for iter.Next(&result) {
-		fmt.Printf("加入第%d个任务 : %s\n", index, result.URL)
 		runingCount++
 		cateURL := result.URL
 		asynWorker.AddHandlerTask(func() {
@@ -102,7 +116,6 @@ func CollecteNovelInfo(finish func()) {
 				}
 			})
 		})
-		index++
 	}
 	if err := iter.Close(); err != nil {
 		fmt.Println("关闭数据库查询遍历器失败")
@@ -199,6 +212,7 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 		finished()
 	}
 	worker.OnFinish = func() {
+		fmt.Printf("Add Action : %s\n", cateURL)
 		dbWorker.AddAction(func() {
 			err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"title": novelInfo.Title, "author": novelInfo.Author, "summary": novelInfo.Summary, "coverimg": novelInfo.CoverImg, "hasinfo": true}})
 			if nil != err {

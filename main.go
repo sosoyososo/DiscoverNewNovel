@@ -33,14 +33,13 @@ TODO:
 */
 import (
 	"fmt"
-	"time"
 
 	"./Uukanshu"
 )
 
 func main() {
-	runNovelDiscover()
-	// collectionNovelsInfo()
+	// runNovelDiscover()
+	collectionNovelsInfo()
 }
 
 // 发现新的小说
@@ -67,8 +66,10 @@ func collectionNovelsInfo() {
 // 发现新的章节
 // 开始后每隔小时执行一次
 func runChapterDiscovery() {
+	ch := make(chan int, 1)
 	Uukanshu.DiscoverNewChapters(func() {
-		time.Sleep(time.Hour)
-		runChapterDiscovery()
+		ch <- 1
 	})
+	<-ch
+	fmt.Println("finished")
 }
