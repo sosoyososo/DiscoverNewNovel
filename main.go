@@ -40,23 +40,32 @@ import (
 
 func main() {
 	runNovelDiscover()
+	// collectionNovelsInfo()
 }
 
+// 发现新的小说
 // 开始后每24小时执行一次
 func runNovelDiscover() {
-	// TODO: 发现新小说
-	// TODO: 后写入数据库
-
 	ch := make(chan int, 1)
 	Uukanshu.RunSpider(func() {
 		ch <- 1
 	})
 	<-ch
-	time.Sleep(time.Second * 20)
+	fmt.Print("一次结束")
+}
+
+// 搜集每本小说的信息
+func collectionNovelsInfo() {
+	ch := make(chan int, 1)
+	Uukanshu.CollecteNovelInfo(func() {
+		ch <- 1
+	})
+	<-ch
 	fmt.Print("结束")
 }
 
-// 开始后每小时执行一次
+// 发现新的章节
+// 开始后每隔小时执行一次
 func runChapterDiscovery() {
 	Uukanshu.DiscoverNewChapters(func() {
 		time.Sleep(time.Hour)

@@ -3,8 +3,6 @@ package Discover
 import (
 	"fmt"
 
-	"time"
-
 	"../AsynWorker"
 	"../HtmlWorker"
 	"github.com/PuerkitoBio/goquery"
@@ -14,8 +12,14 @@ import (
 Worker is a queue, which can be added in some task to be excuted
 */
 type Worker struct {
-	visitedURLList []string
-	listLock       chan int
+	visitedURLList      []string
+	listLock            chan int
+	runningCount        int
+	OnFinish            func()
+	taskQueue           AsynWorker.AsynWorker
+	shouldContinueOnURL func(string) bool
+	configHTMLWorker    func(*HtmlWorker.Worker)
+	urlConvert          func(string) string
 }
 
 /*
@@ -32,21 +36,20 @@ func (w *Worker) Run(entryURL string,
 	w.listLock = make(chan int, 1)
 	w.listLock <- 1
 
-	taskQueue := AsynWorker.New()
-	taskQueue.MaxRoutineCount = workerCount
-	taskQueue.StopedActopn = finish
+	w.shouldContinueOnURL = shouldContinueOnURL
+	w.configHTMLWorker = configHTMLWorker
+	w.urlConvert = urlConvert
 
-	taskQueue.AddHandlerTask(func() {
-		w.runPage(taskQueue,
-			entryURL,
-			shouldContinueOnURL,
-			configHTMLWorker,
-			urlConvert)
+	w.taskQueue = AsynWorker.New()
+	w.taskQueue.MaxRoutineCount = workerCount
+	w.taskQueue.StopedAction = finish
+
+	w.taskQueue.AddHandlerTask(func() {
+		w.runPage(entryURL, w.shouldContinueOnURL, w.configHTMLWorker, w.urlConvert)
 	})
 }
 
-func (w *Worker) runPage(asynWorker AsynWorker.AsynWorker,
-	url string,
+func (w *Worker) runPage(url string,
 	shouldContinueOnURL func(string) bool,
 	configHTMLWorker func(*HtmlWorker.Worker),
 	urlConvert func(string) string) {
@@ -56,49 +59,47 @@ func (w *Worker) runPage(asynWorker AsynWorker.AsynWorker,
 			href, isexist := s.Attr("href")
 			if isexist {
 				if shouldContinueOnURL(href) {
-					if w.addURLUnVisitedIfNoExist(href) == false {
-						fmt.Printf("访问过的url: %s\n", href)
-						return
+					if w.addURLUnVisitedIfNoExist(href) == true {
+						href = urlConvert(href)
+						w.taskQueue.AddHandlerTask(func() {
+							w.runPage(href, w.shouldContinueOnURL, w.configHTMLWorker, w.urlConvert)
+						})
 					}
-					href = urlConvert(href)
-					time.Sleep(time.Second) //停止一秒，减少爬虫对服务器压力
-					asynWorker.AddHandlerTask(func() {
-						w.runPage(asynWorker,
-							href,
-							shouldContinueOnURL,
-							configHTMLWorker,
-							urlConvert)
-					})
-				} else {
-					fmt.Printf("放弃url: %s\n", href)
 				}
 			}
 		})
 	})
+
 	worker := HtmlWorker.New(url, []HtmlWorker.WorkerAction{action})
 	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
-		fmt.Println(err)
+		w.runningCount--
+		if w.runningCount <= 0 {
+			w.OnFinish()
+		}
 	}
 	worker.OnFinish = func() {
+		w.runningCount--
+		if w.runningCount <= 0 {
+			w.OnFinish()
+		}
 	}
 
-	fmt.Printf("start fetch %s\n", url)
+	w.runningCount++
+
+	fmt.Printf("fetch url %s\n", url)
 	worker.Run()
 }
 
 func (w *Worker) addURLUnVisitedIfNoExist(url string) bool {
 	<-w.listLock
-	fmt.Println("lock")
 	for i := 0; i < len(w.visitedURLList); i++ {
 		if w.visitedURLList[i] == url {
 			w.listLock <- 1
-			fmt.Println("unlock")
 			return false
 		}
 	}
 	w.visitedURLList = append(w.visitedURLList, url)
 	w.listLock <- 1
-	fmt.Println("unlock")
 	return true
 }

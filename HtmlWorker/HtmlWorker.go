@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -78,13 +79,9 @@ func (w *Worker) Run() {
 	buffer, err := w.getUtf8HtmlBytesFromURL()
 	if nil == err {
 		w.doWork(buffer)
-		if nil != w.OnFinish {
-			w.OnFinish()
-		}
+		w.OnFinish()
 	} else {
-		if nil != w.OnFail {
-			w.OnFail(err)
-		}
+		w.OnFail(err)
 	}
 }
 
@@ -114,12 +111,15 @@ func (w *Worker) getUtf8HtmlBytesFromURL() ([]byte, error) {
 		DisableCompression: true,
 	}
 
-	var client = &http.Client{Transport: tr}
+	timeout := time.Duration(10 * time.Second)
+	client := &http.Client{Transport: tr,
+		Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	if strings.HasPrefix(resp.Status, "200") {
 		buffer, err := ioutil.ReadAll(resp.Body)
 		if len(buffer) <= 0 {
@@ -133,7 +133,6 @@ func (w *Worker) getUtf8HtmlBytesFromURL() ([]byte, error) {
 		}
 		return buffer, nil
 	}
-	fmt.Println(resp.Status)
 	return []byte{}, errors.New("请求失败")
 }
 
