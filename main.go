@@ -39,7 +39,8 @@ import (
 
 func main() {
 	// runNovelDiscover()
-	collectionNovelsInfo()
+	// collectionNovelsInfo()
+	runChapterDiscovery()
 }
 
 // 发现新的小说

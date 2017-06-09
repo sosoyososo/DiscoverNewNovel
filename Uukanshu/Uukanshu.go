@@ -24,6 +24,18 @@ type ChapterInfo struct {
 }
 
 /*
+NovelInfo 保存小说信息
+*/
+type NovelInfo struct {
+	URL      string
+	Title    string
+	Author   string
+	Summary  string
+	CoverImg string
+	HasInfo  bool
+}
+
+/*
 Action 获取某个章节的内容
 */
 func (c ChapterInfo) Action() {
@@ -36,18 +48,6 @@ func (c ChapterInfo) Action() {
 		return Encoding.GbkToUtf8(buffer)
 	}
 	worker.Run()
-}
-
-/*
-NovelInfo 保存小说信息
-*/
-type NovelInfo struct {
-	URL      string
-	Title    string
-	Author   string
-	Summary  string
-	CoverImg string
-	HasInfo  bool
 }
 
 var (
@@ -78,17 +78,73 @@ func DiscoverNewChapters(finish func()) {
 	novelCollection := novelDb.C("novels")
 	iter := novelCollection.Find(bson.M{}).Iter()
 
-	// chaptersCollection := novelDb.C("chapters")
-
 	asynWorker := AsynWorker.New()
 	result := NovelInfo{}
 
+	count := 0
 	for iter.Next(&result) {
-		if len(result.URL) > 0 {
+		retURL := result.URL
+		if len(retURL) > 0 {
+			count++
 			asynWorker.AddHandlerTask(func() {
+				findChaptersForNovel(retURL, func() {
+					count--
+					if count <= 0 {
+						finish()
+					}
+				})
 			})
 		}
 	}
+}
+
+func findChaptersForNovel(cateURL string, finish func()) {
+	connectToDbIfNeed()
+	createDBWorkerInfoNeeded()
+
+	novelCollection := novelDb.C("chapters")
+	query := novelCollection.Find(bson.M{"cateurl": cateURL})
+
+	chaptersAction := HtmlWorker.NewAction("#chapterList > li > a", func(sel *goquery.Selection) {
+		length := len(sel.Nodes)
+		sel.Each(func(index int, s *goquery.Selection) {
+			url, isExist := s.Attr("href")
+			if isExist {
+				url = fullURL(url)
+
+				chapterInfo := ChapterInfo{}
+				iter := query.Iter()
+				for iter.Next(&chapterInfo) {
+					if chapterInfo.URL == url { //数据库已经存在相同的章节
+						return
+					}
+				}
+
+				chapterIndex := length - index
+
+				chapterInfo.URL = url
+				chapterInfo.CateURL = cateURL
+				chapterInfo.Index = chapterIndex
+				chapterInfo.Title = s.Text()
+				err := novelCollection.Insert(chapterInfo)
+				if err != nil {
+					fmt.Printf(" %s 插入 第%d章节失败 %s　\n", cateURL, chapterIndex, err.Error())
+				}
+			}
+		})
+	})
+
+	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{chaptersAction})
+	configHTMLWorker(&worker)
+	worker.OnFail = func(err error) {
+		fmt.Printf("更新 %s 失败　%s\n", cateURL, err.Error())
+		finish()
+	}
+	worker.OnFinish = func() {
+		fmt.Printf("完成 %s 的更新\n", cateURL)
+		finish()
+	}
+	worker.Run()
 }
 
 /*
@@ -138,12 +194,7 @@ func RunSpider(finished func()) {
 		func(url string) bool {
 			return isInsiteURL(url) == true && isPicURL(url) == false
 		},
-		func(worker *HtmlWorker.Worker) {
-			worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
-			worker.Encoder = func(buffer []byte) ([]byte, error) {
-				return Encoding.GbkToUtf8(buffer)
-			}
-		},
+		configHTMLWorker,
 		func(url string) string {
 			if isCatelogURL(url) { //如果是目录URL，走找到小说的路径
 				foundNovelURL(url)
@@ -203,10 +254,7 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 	})
 
 	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{titleAction, coverAction, authorAction, summaryAction})
-	worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
-	worker.Encoder = func(buffer []byte) ([]byte, error) {
-		return Encoding.GbkToUtf8(buffer)
-	}
+	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
 		fmt.Printf("fail on : %s with error : %s\n", cateURL, err.Error())
 		finished()
@@ -286,4 +334,11 @@ func fullURL(url string) string {
 	}
 	fmt.Printf("无法处理的url: %s\n", url)
 	return url
+}
+
+func configHTMLWorker(worker *HtmlWorker.Worker) {
+	worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
+	worker.Encoder = func(buffer []byte) ([]byte, error) {
+		return Encoding.GbkToUtf8(buffer)
+	}
 }
