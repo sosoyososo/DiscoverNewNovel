@@ -113,6 +113,8 @@ func findChaptersForNovel(cateURL string, finish func()) {
 				return
 			}
 		}
+
+		fmt.Printf(" %s 一共 %d章, 发现新的章节　\n", cateURL, length)
 		sel.Each(func(index int, s *goquery.Selection) {
 			url, isExist := s.Attr("href")
 			if isExist {
