@@ -104,9 +104,15 @@ func findChaptersForNovel(cateURL string, finish func()) {
 
 	novelCollection := novelDb.C("chapters")
 	query := novelCollection.Find(bson.M{"cateurl": cateURL})
+	count, err := query.Count()
 
 	chaptersAction := HtmlWorker.NewAction("#chapterList > li > a", func(sel *goquery.Selection) {
 		length := len(sel.Nodes)
+		if err == nil {
+			if length == count { //已经存储的内容和现有内容数量一致，不需要更新
+				return
+			}
+		}
 		sel.Each(func(index int, s *goquery.Selection) {
 			url, isExist := s.Attr("href")
 			if isExist {
