@@ -79,6 +79,7 @@ func DiscoverNewChapters(finish func()) {
 	iter := novelCollection.Find(bson.M{}).Iter()
 
 	asynWorker := AsynWorker.New()
+	asynWorker.MaxRoutineCount = 10
 	result := NovelInfo{}
 
 	count := 0
