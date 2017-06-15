@@ -32,45 +32,9 @@ TODO:
 1.
 */
 import (
-	"fmt"
-
 	"./Uukanshu"
 )
 
 func main() {
-	// runNovelDiscover()
-	// collectionNovelsInfo()
-	runChapterDiscovery()
-}
-
-// 发现新的小说
-// 开始后每24小时执行一次
-func runNovelDiscover() {
-	ch := make(chan int, 1)
-	Uukanshu.RunSpider(func() {
-		ch <- 1
-	})
-	<-ch
-	fmt.Print("一次结束")
-}
-
-// 搜集每本小说的信息
-func collectionNovelsInfo() {
-	ch := make(chan int, 1)
-	Uukanshu.CollecteNovelInfo(func() {
-		ch <- 1
-	})
-	<-ch
-	fmt.Print("结束")
-}
-
-// 发现新的章节
-// 开始后每隔小时执行一次
-func runChapterDiscovery() {
-	ch := make(chan int, 1)
-	Uukanshu.DiscoverNewChapters(func() {
-		ch <- 1
-	})
-	<-ch
-	fmt.Println("finished")
+	Uukanshu.Run()
 }

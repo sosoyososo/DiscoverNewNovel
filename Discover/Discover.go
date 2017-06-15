@@ -9,14 +9,21 @@ import (
 )
 
 /*
-Worker is a queue, which can be added in some task to be excuted
+Worker 封装一个简单的html爬虫，使用一个url作为入口，扩散开来进行连接的遍历。
+	1. 异步的获取新的连接
+	2. 同一次启动不会遍历相同的连接
+	3. 外部使用者来判断一个连接是否应该向下遍历
+	4. 外部使用者对连接进行有效性判断
 */
 type Worker struct {
-	visitedURLList      []string
-	listLock            chan int
-	runningCount        int
-	OnFinish            func()
-	taskQueue           AsynWorker.AsynWorker
+	taskQueue AsynWorker.AsynWorker
+
+	visitedURLList []string
+	listLock       chan int
+
+	runningCount int
+	OnFinish     func()
+
 	shouldContinueOnURL func(string) bool
 	configHTMLWorker    func(*HtmlWorker.Worker)
 	urlConvert          func(string) string

@@ -9,6 +9,10 @@ import (
 )
 
 /*
+封装一个工具，用来将一个网页转换成goquery可以使用的utf8格式
+*/
+
+/*
 HtmlContentEncoding 是一个接口
 */
 type HtmlContentEncoding interface {

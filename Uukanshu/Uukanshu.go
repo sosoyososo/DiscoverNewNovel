@@ -14,16 +14,6 @@ import (
 )
 
 /*
-ChapterInfo 保存章节信息
-*/
-type ChapterInfo struct {
-	CateURL string
-	Title   string
-	URL     string
-	Index   int
-}
-
-/*
 NovelInfo 保存小说信息
 */
 type NovelInfo struct {
@@ -33,21 +23,17 @@ type NovelInfo struct {
 	Summary  string
 	CoverImg string
 	HasInfo  bool
+	Tags     []string
 }
 
 /*
-Action 获取某个章节的内容
+ChapterInfo 保存章节信息
 */
-func (c ChapterInfo) Action() {
-	contentAction := HtmlWorker.NewAction("div.contentbox", func(s *goquery.Selection) {
-		fmt.Println(c.Title)
-	})
-	worker := HtmlWorker.New(c.URL, []HtmlWorker.WorkerAction{contentAction})
-	worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
-	worker.Encoder = func(buffer []byte) ([]byte, error) {
-		return Encoding.GbkToUtf8(buffer)
-	}
-	worker.Run()
+type ChapterInfo struct {
+	CateURL string
+	Title   string
+	URL     string
+	Index   int
 }
 
 var (
@@ -57,6 +43,50 @@ var (
 	novelInfoWorker *AsynWorker.AsynWorker
 )
 
+// 发现新的小说
+// 开始后每24小时执行一次
+func Run() {
+	fmt.Print("=============== 开始寻找小说 ========================")
+	ch := make(chan int, 1)
+	RunSpider(func() {
+		ch <- 1
+	})
+	<-ch
+
+	collectionNovelsInfo()
+}
+
+// 搜集每本小说的信息
+func collectionNovelsInfo() {
+	fmt.Print("=============== 开始完善小说信息 ========================")
+	ch := make(chan int, 1)
+	CollecteNovelInfo(func() {
+		ch <- 1
+	})
+	<-ch
+
+	runChapterDiscovery()
+}
+
+// 发现新的章节
+// 开始后每隔小时执行一次
+func runChapterDiscovery() {
+	fmt.Print("=============== 开始完善章节信息 ========================")
+
+	ch := make(chan int, 1)
+	DiscoverNewChapters(func() {
+		ch <- 1
+	})
+	<-ch
+	fmt.Println("finished")
+}
+
+/*
+==================================================================================
+小说发现逻辑
+==================================================================================
+*/
+
 /*
 RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录页面
 注意:
@@ -64,13 +94,61 @@ RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录�
 	每个页面1个小时内最多遍历1次
 	发现新的小说目录页面，应该发出通知
 */
+/*
+RunSpider 启动发现小说的爬虫
+*/
+func RunSpider(finished func()) {
+	connectToDbIfNeed()
+	createDBWorkerInfoNeeded()
+
+	d := Discover.Worker{}
+	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
+		20,
+		func(url string) bool {
+			return isInsiteURL(url) == true && isPicURL(url) == false
+		},
+		configHTMLWorker,
+		func(url string) string {
+			if isCatelogURL(url) { //如果是目录URL，走找到小说的路径
+				foundNovel(url)
+			}
+			return fullURL(url)
+		},
+		finished)
+}
+
+/*
+foundNovel 在 RunSpider 过程中发现新
+*/
+func foundNovel(catelogURL string) {
+	dbWorker.AddAction(func() {
+		novels := novelDb.C("novels")
+		cateURL := fullURL(catelogURL)
+		count, err := novels.Find(bson.M{"url": cateURL}).Count()
+		if nil != err || count == 0 { //找到新的小说后，获取小说信息，将之更新到数据库
+			fmt.Printf("发现新小说:%s\n", catelogURL)
+
+			novel := NovelInfo{}
+			novel.URL = cateURL
+			novelCollection := novelDb.C("novels")
+
+			err := novelCollection.Insert(&novel)
+			if err != nil {
+				fmt.Println("插入小说失败")
+			}
+		}
+	})
+}
+
+/*
+==================================================================================
+小说章节发现逻辑
+==================================================================================
+*/
 
 /*
 DiscoverNewChapters 遍历所有小说，获取目录页，遍历章节，发现新的章节
 */
-// TODO: 获取每个小说的章节列表
-// TODO: 发现新的章节
-// TODO: 写入数据库
 func DiscoverNewChapters(finish func()) {
 	connectToDbIfNeed()
 	createDBWorkerInfoNeeded()
@@ -115,7 +193,6 @@ func findChaptersForNovel(cateURL string, finish func()) {
 			}
 		}
 
-		fmt.Printf(" %s 一共 %d章, 发现新的章节　\n", cateURL, length)
 		sel.Each(func(index int, s *goquery.Selection) {
 			url, isExist := s.Attr("href")
 			if isExist {
@@ -135,10 +212,7 @@ func findChaptersForNovel(cateURL string, finish func()) {
 				chapterInfo.CateURL = cateURL
 				chapterInfo.Index = chapterIndex
 				chapterInfo.Title = s.Text()
-				err := novelCollection.Insert(chapterInfo)
-				if err != nil {
-					fmt.Printf(" %s 插入 第%d章节失败 %s　\n", cateURL, chapterIndex, err.Error())
-				}
+				novelCollection.Insert(chapterInfo)
 			}
 		})
 	})
@@ -146,11 +220,9 @@ func findChaptersForNovel(cateURL string, finish func()) {
 	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{chaptersAction})
 	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
-		fmt.Printf("更新 %s 失败　%s\n", cateURL, err.Error())
 		finish()
 	}
 	worker.OnFinish = func() {
-		fmt.Printf("完成 %s 的更新\n", cateURL)
 		finish()
 	}
 	worker.Run()
@@ -182,58 +254,10 @@ func CollecteNovelInfo(finish func()) {
 			})
 		})
 	}
-	if err := iter.Close(); err != nil {
-		fmt.Println("关闭数据库查询遍历器失败")
-	}
+	iter.Close()
 	if runingCount <= 0 && finish != nil {
 		finish()
 	}
-}
-
-/*
-RunSpider 启动发现小说的爬虫
-*/
-func RunSpider(finished func()) {
-	connectToDbIfNeed()
-	createDBWorkerInfoNeeded()
-
-	d := Discover.Worker{}
-	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
-		20,
-		func(url string) bool {
-			return isInsiteURL(url) == true && isPicURL(url) == false
-		},
-		configHTMLWorker,
-		func(url string) string {
-			if isCatelogURL(url) { //如果是目录URL，走找到小说的路径
-				foundNovelURL(url)
-			}
-			return fullURL(url)
-		},
-		finished)
-}
-
-/*
-foundNovelURL 在 RunSpider 过程中发现新的小说URL，需要插入到数据库中
-*/
-func foundNovelURL(catelogURL string) {
-	dbWorker.AddAction(func() {
-		novels := novelDb.C("novels")
-		cateURL := fullURL(catelogURL)
-		count, err := novels.Find(bson.M{"url": cateURL}).Count()
-		if nil != err || count == 0 { //找到新的小说后，获取小说信息，将之更新到数据库
-			fmt.Printf("发现新小说:%s\n", catelogURL)
-
-			novel := NovelInfo{}
-			novel.URL = cateURL
-			novelCollection := novelDb.C("novels")
-
-			err := novelCollection.Insert(&novel)
-			if err != nil {
-				fmt.Println("插入小说失败")
-			}
-		}
-	})
 }
 
 /*
@@ -246,8 +270,21 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 	novelInfo := NovelInfo{}
 	novelInfo.URL = cateURL
 
+	statusAction := HtmlWorker.NewAction(".status-text", func(s *goquery.Selection) {
+		status := s.Text()
+		if len(status) > 0 {
+			for i := 0; i < len(novelInfo.Tags); i++ {
+				if novelInfo.Tags[i] == status {
+					return
+				}
+			}
+
+			novelInfo.Tags = append(novelInfo.Tags, status)
+		}
+	})
 	titleAction := HtmlWorker.NewAction("dd > h1 > a", func(s *goquery.Selection) {
-		novelInfo.Title = s.Text()
+		title := s.Text()
+		novelInfo.Title = strings.TrimLeft(title, "最新章节")
 	})
 	coverAction := HtmlWorker.NewAction(".jieshao > dt > a > img", func(s *goquery.Selection) {
 		url, isExist := s.Attr("src")
@@ -256,32 +293,37 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 		}
 	})
 	summaryAction := HtmlWorker.NewAction("dd > h3", func(s *goquery.Selection) {
-		novelInfo.Summary = s.Text()
+		summary := s.Text()
+		summary = strings.TrimSpace(summary)
+		summary = strings.Trim(summary, "\n")
+		summary = strings.Trim(summary, "－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－")
+		summary = strings.ToLower(summary)
+		summary = strings.Trim(summary, "http://www.uukanshu.net")
+		novelInfo.Summary = summary
 	})
 	authorAction := HtmlWorker.NewAction("dd > h2 > a", func(s *goquery.Selection) {
 		novelInfo.Author = s.Text()
 	})
 
-	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{titleAction, coverAction, authorAction, summaryAction})
+	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{titleAction, coverAction, authorAction, summaryAction, statusAction})
 	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
-		fmt.Printf("fail on : %s with error : %s\n", cateURL, err.Error())
 		finished()
 	}
 	worker.OnFinish = func() {
-		fmt.Printf("Add Action : %s\n", cateURL)
 		dbWorker.AddAction(func() {
-			err := novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"title": novelInfo.Title, "author": novelInfo.Author, "summary": novelInfo.Summary, "coverimg": novelInfo.CoverImg, "hasinfo": true}})
-			if nil != err {
-				fmt.Printf("update info fail on : %s\n", cateURL)
-			} else {
-				fmt.Printf("update info succeed on : %s\n", cateURL)
-			}
+			novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"title": novelInfo.Title, "author": novelInfo.Author, "summary": novelInfo.Summary, "coverimg": novelInfo.CoverImg, "hasinfo": true, "tags": novelInfo.Tags}})
 			finished()
 		})
 	}
 	worker.Run()
 }
+
+/*
+==================================================================================
+其他支持函数
+==================================================================================
+*/
 
 func connectToDbIfNeed() {
 	if dbSession == nil {

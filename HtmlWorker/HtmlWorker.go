@@ -3,7 +3,6 @@ package HtmlWorker
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -76,16 +75,23 @@ func SingleActionWorker(url string, selector string, handler func(selection *goq
 Run 开始执行
 */
 func (w *Worker) Run() {
-	buffer, err := w.getUtf8HtmlBytesFromURL()
+	buffer, err := w.GetUtf8HtmlBytesFromURL()
 	if nil == err {
 		w.doWork(buffer)
-		w.OnFinish()
+		if nil != w.OnFinish {
+			w.OnFinish()
+		}
 	} else {
-		w.OnFail(err)
+		if nil != w.OnFail {
+			w.OnFail(err)
+		}
 	}
 }
 
-func (w *Worker) getUtf8HtmlBytesFromURL() ([]byte, error) {
+/*
+GetUtf8HtmlBytesFromURL 获取网页内容
+*/
+func (w *Worker) GetUtf8HtmlBytesFromURL() ([]byte, error) {
 	// 校验 URL
 	if len(w.URL) <= 0 {
 		return []byte{}, errors.New("请求失败")
@@ -93,7 +99,6 @@ func (w *Worker) getUtf8HtmlBytesFromURL() ([]byte, error) {
 
 	req, err := http.NewRequest("GET", w.URL, nil)
 	if err != nil {
-		fmt.Println(err)
 		return []byte{}, err
 	}
 
@@ -140,7 +145,6 @@ func (w *Worker) doWork(buffer []byte) {
 	reader := bytes.NewReader(buffer)
 	doc, err := goquery.NewDocumentFromReader(reader)
 	if err != nil {
-		fmt.Println(err)
 		return
 	}
 
