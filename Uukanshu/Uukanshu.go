@@ -8,8 +8,8 @@ import (
 	"../Discover"
 	"../Encoding"
 	"../HtmlWorker"
+	"../MongoDb"
 	"github.com/PuerkitoBio/goquery"
-	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -37,8 +37,6 @@ type ChapterInfo struct {
 }
 
 var (
-	dbSession       *mgo.Session
-	novelDb         *mgo.Database
 	dbWorker        *AsynWorker.SynWorker
 	novelInfoWorker *AsynWorker.AsynWorker
 )
@@ -98,7 +96,6 @@ RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录�
 RunSpider 启动发现小说的爬虫
 */
 func RunSpider(finished func()) {
-	connectToDbIfNeed()
 	createDBWorkerInfoNeeded()
 
 	d := Discover.Worker{}
@@ -122,17 +119,15 @@ foundNovel 在 RunSpider 过程中发现新
 */
 func foundNovel(catelogURL string) {
 	dbWorker.AddAction(func() {
-		novels := novelDb.C("novels")
 		cateURL := fullURL(catelogURL)
-		count, err := novels.Find(bson.M{"url": cateURL}).Count()
+		count, err := MongoDb.GetUukanshuNovelCollection().Find(bson.M{"url": cateURL}).Count()
 		if nil != err || count == 0 { //找到新的小说后，获取小说信息，将之更新到数据库
 			fmt.Printf("发现新小说:%s\n", catelogURL)
 
 			novel := NovelInfo{}
 			novel.URL = cateURL
-			novelCollection := novelDb.C("novels")
 
-			err := novelCollection.Insert(&novel)
+			err := MongoDb.GetUukanshuNovelCollection().Insert(&novel)
 			if err != nil {
 				fmt.Println("插入小说失败")
 			}
@@ -150,11 +145,9 @@ func foundNovel(catelogURL string) {
 DiscoverNewChapters 遍历所有小说，获取目录页，遍历章节，发现新的章节
 */
 func DiscoverNewChapters(finish func()) {
-	connectToDbIfNeed()
 	createDBWorkerInfoNeeded()
 
-	novelCollection := novelDb.C("novels")
-	iter := novelCollection.Find(bson.M{}).Iter()
+	iter := MongoDb.GetUukanshuNovelCollection().Find(bson.M{}).Iter()
 
 	asynWorker := AsynWorker.New()
 	asynWorker.MaxRoutineCount = 10
@@ -178,11 +171,9 @@ func DiscoverNewChapters(finish func()) {
 }
 
 func findChaptersForNovel(cateURL string, finish func()) {
-	connectToDbIfNeed()
 	createDBWorkerInfoNeeded()
-
-	novelCollection := novelDb.C("chapters")
-	query := novelCollection.Find(bson.M{"cateurl": cateURL})
+	novelChapterCollection := MongoDb.GetChapterCollection(cateURL)
+	query := novelChapterCollection.Find(bson.M{"cateurl": cateURL})
 	count, err := query.Count()
 
 	chaptersAction := HtmlWorker.NewAction("#chapterList > li > a", func(sel *goquery.Selection) {
@@ -212,7 +203,7 @@ func findChaptersForNovel(cateURL string, finish func()) {
 				chapterInfo.CateURL = cateURL
 				chapterInfo.Index = chapterIndex
 				chapterInfo.Title = s.Text()
-				novelCollection.Insert(chapterInfo)
+				novelChapterCollection.Insert(chapterInfo)
 			}
 		})
 	})
@@ -232,10 +223,9 @@ func findChaptersForNovel(cateURL string, finish func()) {
 CollecteNovelInfo 遍历数据库，获取每个小说的信息
 */
 func CollecteNovelInfo(finish func()) {
-	connectToDbIfNeed()
 	createDBWorkerInfoNeeded()
 
-	novelCollection := novelDb.C("novels")
+	novelCollection := MongoDb.GetUukanshuNovelCollection()
 	iter := novelCollection.Find(bson.M{"hasinfo": false}).Iter()
 
 	asynWorker := AsynWorker.New()
@@ -265,7 +255,7 @@ RunCateFetch 使用一个 Uukanshu 的目录页面 url，读取小说信息，�
 */
 func runNovelInfoFetch(cateURL string, finished func()) {
 	cateURL = fullURL(cateURL)
-	novelCollection := novelDb.C("novels")
+	novelCollection := MongoDb.GetUukanshuNovelCollection()
 
 	novelInfo := NovelInfo{}
 	novelInfo.URL = cateURL
@@ -324,16 +314,6 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 其他支持函数
 ==================================================================================
 */
-
-func connectToDbIfNeed() {
-	if dbSession == nil {
-		dbSession, err := mgo.Dial("127.0.0.1:27017")
-		if err != nil {
-			panic(err)
-		}
-		novelDb = dbSession.DB("novel")
-	}
-}
 
 func createDBWorkerInfoNeeded() {
 	if dbWorker == nil {
