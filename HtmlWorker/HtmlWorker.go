@@ -37,6 +37,7 @@ type Worker struct {
 	URL         string
 	Action      []WorkerAction
 	CookieStrig string
+	document    *goquery.Document
 	Encoder     func(s []byte) ([]byte, error)
 	OnFail      func(err error)
 	OnFinish    func()
@@ -147,10 +148,18 @@ func (w *Worker) doWork(buffer []byte) {
 	if err != nil {
 		return
 	}
+	w.document = doc
+	w.HandleActions(w.Action)
+}
 
-	for i := 0; i < len(w.Action); i++ {
-		action := w.Action[i]
-		action.Action(doc.Find(action.Selector))
+/*
+ */
+func (w *Worker) HandleActions(actions []WorkerAction) {
+	if nil != w.document && len(actions) > 0 {
+		for i := 0; i < len(actions); i++ {
+			action := actions[i]
+			action.Action(w.document.Find(action.Selector))
+		}
 	}
 }
 

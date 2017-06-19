@@ -37,28 +37,18 @@ type ChapterInfo struct {
 }
 
 var (
-	dbWorker        *AsynWorker.SynWorker
-	novelInfoWorker *AsynWorker.AsynWorker
+	novelDbList []NovelInfo //数据库表中小说地址列表
 )
 
-// 发现新的小说
-// 开始后每24小时执行一次
+/*
+Run 是uukanshu总的入口
+*/
 func Run() {
-	fmt.Print("=============== 开始寻找小说 ========================")
+	initDb()
+
+	fmt.Println("=============== 开始寻找小说 ========================")
 	ch := make(chan int, 1)
 	RunSpider(func() {
-		ch <- 1
-	})
-	<-ch
-
-	collectionNovelsInfo()
-}
-
-// 搜集每本小说的信息
-func collectionNovelsInfo() {
-	fmt.Print("=============== 开始完善小说信息 ========================")
-	ch := make(chan int, 1)
-	CollecteNovelInfo(func() {
 		ch <- 1
 	})
 	<-ch
@@ -69,14 +59,14 @@ func collectionNovelsInfo() {
 // 发现新的章节
 // 开始后每隔小时执行一次
 func runChapterDiscovery() {
-	fmt.Print("=============== 开始完善章节信息 ========================")
+	fmt.Println("=============== 开始完善章节信息 ========================")
 
 	ch := make(chan int, 1)
 	DiscoverNewChapters(func() {
 		ch <- 1
 	})
 	<-ch
-	fmt.Println("finished")
+	fmt.Println("完成")
 }
 
 /*
@@ -91,13 +81,12 @@ RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录�
 	站内搜素所有非小说详情的页面
 	每个页面1个小时内最多遍历1次
 	发现新的小说目录页面，应该发出通知
+	利用了Spider不会遍历两次相同网页的特性对数据库操作做了优化
 */
 /*
 RunSpider 启动发现小说的爬虫
 */
 func RunSpider(finished func()) {
-	createDBWorkerInfoNeeded()
-
 	d := Discover.Worker{}
 	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
 		20,
@@ -105,161 +94,75 @@ func RunSpider(finished func()) {
 			return isInsiteURL(url) == true && isPicURL(url) == false
 		},
 		configHTMLWorker,
-		func(url string) string {
-			if isCatelogURL(url) { //如果是目录URL，走找到小说的路径
-				foundNovel(url)
-			}
-			return fullURL(url)
+		func(cateURL string, worker *HtmlWorker.Worker) {
+			fmt.Printf("发现小说%s\n", cateURL)
+			handleNovelInfo(cateURL, worker)
+			handleChapterList(cateURL, worker)
 		},
+		fullURL,
 		finished)
 }
 
-/*
-foundNovel 在 RunSpider 过程中发现新
-*/
-func foundNovel(catelogURL string) {
-	dbWorker.AddAction(func() {
-		cateURL := fullURL(catelogURL)
-		count, err := MongoDb.GetUukanshuNovelCollection().Find(bson.M{"url": cateURL}).Count()
-		if nil != err || count == 0 { //找到新的小说后，获取小说信息，将之更新到数据库
-			fmt.Printf("发现新小说:%s\n", catelogURL)
-
-			novel := NovelInfo{}
-			novel.URL = cateURL
-
-			err := MongoDb.GetUukanshuNovelCollection().Insert(&novel)
-			if err != nil {
-				fmt.Println("插入小说失败")
-			}
-		}
-	})
-}
-
-/*
-==================================================================================
-小说章节发现逻辑
-==================================================================================
-*/
-
-/*
-DiscoverNewChapters 遍历所有小说，获取目录页，遍历章节，发现新的章节
-*/
-func DiscoverNewChapters(finish func()) {
-	createDBWorkerInfoNeeded()
-
-	iter := MongoDb.GetUukanshuNovelCollection().Find(bson.M{}).Iter()
-
-	asynWorker := AsynWorker.New()
-	asynWorker.MaxRoutineCount = 10
-	result := NovelInfo{}
-
-	count := 0
-	for iter.Next(&result) {
-		retURL := result.URL
-		if len(retURL) > 0 {
-			count++
-			asynWorker.AddHandlerTask(func() {
-				findChaptersForNovel(retURL, func() {
-					count--
-					if count <= 0 {
-						finish()
-					}
-				})
-			})
-		}
-	}
-}
-
-func findChaptersForNovel(cateURL string, finish func()) {
-	createDBWorkerInfoNeeded()
-	novelChapterCollection := MongoDb.GetChapterCollection(cateURL)
-	query := novelChapterCollection.Find(bson.M{"cateurl": cateURL})
-	count, err := query.Count()
-
+func handleChapterList(cateURL string, worker *HtmlWorker.Worker) {
 	chaptersAction := HtmlWorker.NewAction("#chapterList > li > a", func(sel *goquery.Selection) {
-		length := len(sel.Nodes)
-		if err == nil {
-			if length == count { //已经存储的内容和现有内容数量一致，不需要更新
-				return
-			}
-		}
+		chapters := []ChapterInfo{}
 
+		length := len(sel.Nodes)
 		sel.Each(func(index int, s *goquery.Selection) {
 			url, isExist := s.Attr("href")
 			if isExist {
 				url = fullURL(url)
 
 				chapterInfo := ChapterInfo{}
-				iter := query.Iter()
-				for iter.Next(&chapterInfo) {
-					if chapterInfo.URL == url { //数据库已经存在相同的章节
-						return
-					}
-				}
-
 				chapterIndex := length - index
-
 				chapterInfo.URL = url
 				chapterInfo.CateURL = cateURL
 				chapterInfo.Index = chapterIndex
 				chapterInfo.Title = s.Text()
-				novelChapterCollection.Insert(chapterInfo)
+
+				chapters = append(chapters, chapterInfo)
 			}
 		})
-	})
 
-	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{chaptersAction})
-	configHTMLWorker(&worker)
-	worker.OnFail = func(err error) {
-		finish()
-	}
-	worker.OnFinish = func() {
-		finish()
-	}
-	worker.Run()
-}
-
-/*
-CollecteNovelInfo 遍历数据库，获取每个小说的信息
-*/
-func CollecteNovelInfo(finish func()) {
-	createDBWorkerInfoNeeded()
-
-	novelCollection := MongoDb.GetUukanshuNovelCollection()
-	iter := novelCollection.Find(bson.M{"hasinfo": false}).Iter()
-
-	asynWorker := AsynWorker.New()
-	result := NovelInfo{}
-
-	runingCount := 0
-	for iter.Next(&result) {
-		runingCount++
-		cateURL := result.URL
-		asynWorker.AddHandlerTask(func() {
-			runNovelInfoFetch(cateURL, func() {
-				runingCount--
-				if runingCount <= 0 && finish != nil {
-					finish()
+		if len(chapters) > 0 {
+			cateURL = fullURL(cateURL)
+			chapterCollection := MongoDb.GetUukanshuChapterCollection(cateURL)
+			query := chapterCollection.Find(bson.M{"cateurl": cateURL})
+			length, err := query.Count()
+			if err == nil {
+				list := make([]ChapterInfo, length)
+				err = query.All(&list)
+				if err == nil && len(list) > 0 {
+					for i := 0; i < len(chapters); i++ {
+						shoudlInsert := true
+						for j := 0; j < len(list); j++ {
+							if list[i].URL == chapters[j].URL {
+								shoudlInsert = false
+								break
+							}
+						}
+						if shoudlInsert {
+							chapter := chapters[i]
+							MongoDb.GetUukanshuChapterCollection(cateURL).Insert(chapter)
+						}
+					}
 				}
-			})
-		})
-	}
-	iter.Close()
-	if runingCount <= 0 && finish != nil {
-		finish()
-	}
+			}
+		}
+	})
+	worker.HandleActions([]HtmlWorker.WorkerAction{chaptersAction})
 }
 
-/*
-RunCateFetch 使用一个 Uukanshu 的目录页面 url，读取小说信息，读取目录列表
-*/
-func runNovelInfoFetch(cateURL string, finished func()) {
-	cateURL = fullURL(cateURL)
-	novelCollection := MongoDb.GetUukanshuNovelCollection()
+func handleNovelInfo(cateURL string, worker *HtmlWorker.Worker) {
+	for i := 0; i < len(novelDbList); i++ {
+		if novelDbList[i].URL == cateURL {
+			fmt.Println("小说重复")
+			return
+		}
+	}
 
+	fmt.Println("插入小说信息")
 	novelInfo := NovelInfo{}
-	novelInfo.URL = cateURL
-
 	statusAction := HtmlWorker.NewAction(".status-text", func(s *goquery.Selection) {
 		status := s.Text()
 		if len(status) > 0 {
@@ -294,17 +197,54 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 	authorAction := HtmlWorker.NewAction("dd > h2 > a", func(s *goquery.Selection) {
 		novelInfo.Author = s.Text()
 	})
+	worker.HandleActions([]HtmlWorker.WorkerAction{statusAction, titleAction, summaryAction, authorAction, coverAction})
 
-	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{titleAction, coverAction, authorAction, summaryAction, statusAction})
+	novelDbList = append(novelDbList, novelInfo)
+	MongoDb.GetUukanshuNovelCollection().Insert(&novelInfo)
+}
+
+/*
+==================================================================================
+小说章节发现逻辑
+==================================================================================
+*/
+
+/*
+DiscoverNewChapters 遍历所有小说，获取目录页，遍历章节，发现新的章节
+*/
+func DiscoverNewChapters(finish func()) {
+	iter := MongoDb.GetUukanshuNovelCollection().Find(bson.M{}).Iter()
+
+	asynWorker := AsynWorker.New()
+	asynWorker.MaxRoutineCount = 10
+	result := NovelInfo{}
+
+	count := 0
+	for iter.Next(&result) {
+		retURL := result.URL
+		if len(retURL) > 0 {
+			count++
+			asynWorker.AddHandlerTask(func() {
+				findChaptersForNovel(retURL, func() {
+					count--
+					if count <= 0 {
+						finish()
+					}
+				})
+			})
+		}
+	}
+}
+
+func findChaptersForNovel(cateURL string, finish func()) {
+	worker := HtmlWorker.New(cateURL, []HtmlWorker.WorkerAction{})
 	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
-		finished()
+		finish()
 	}
 	worker.OnFinish = func() {
-		dbWorker.AddAction(func() {
-			novelCollection.Update(bson.M{"url": cateURL}, bson.M{"$set": bson.M{"title": novelInfo.Title, "author": novelInfo.Author, "summary": novelInfo.Summary, "coverimg": novelInfo.CoverImg, "hasinfo": true, "tags": novelInfo.Tags}})
-			finished()
-		})
+		handleChapterList(cateURL, &worker)
+		finish()
 	}
 	worker.Run()
 }
@@ -315,9 +255,14 @@ func runNovelInfoFetch(cateURL string, finished func()) {
 ==================================================================================
 */
 
-func createDBWorkerInfoNeeded() {
-	if dbWorker == nil {
-		dbWorker = &AsynWorker.SynWorker{}
+func initDb() {
+	query := MongoDb.GetUukanshuNovelCollection().Find(nil)
+	count, err := query.Count()
+	if nil == err && count > 0 {
+		novelDbList = make([]NovelInfo, count)
+		query.All(&query)
+	} else {
+		novelDbList = []NovelInfo{}
 	}
 }
 
@@ -340,7 +285,9 @@ func isPicURL(URL string) bool {
 }
 
 func isCatelogURL(URL string) bool {
-	if strings.HasPrefix(URL, "/b") {
+	if strings.HasPrefix(URL, "/b") ||
+		strings.HasPrefix(URL, "http://www.uukanshu.net/b") ||
+		strings.HasPrefix(URL, "www.uukanshu.net/b") {
 		if strings.HasSuffix(URL, ".html") {
 			return false
 		}

@@ -24,6 +24,7 @@ type Worker struct {
 	runningCount int
 	OnFinish     func()
 
+	pageContentHander   func(string, *HtmlWorker.Worker)
 	shouldContinueOnURL func(string) bool
 	configHTMLWorker    func(*HtmlWorker.Worker)
 	urlConvert          func(string) string
@@ -36,6 +37,7 @@ func (w *Worker) Run(entryURL string,
 	workerCount int,
 	shouldContinueOnURL func(string) bool,
 	configHTMLWorker func(*HtmlWorker.Worker),
+	pageContentHander func(string, *HtmlWorker.Worker),
 	urlConvert func(string) string,
 	finish func()) {
 
@@ -46,17 +48,20 @@ func (w *Worker) Run(entryURL string,
 	w.shouldContinueOnURL = shouldContinueOnURL
 	w.configHTMLWorker = configHTMLWorker
 	w.urlConvert = urlConvert
+	w.pageContentHander = pageContentHander
+	w.OnFinish = finish
 
 	w.taskQueue = AsynWorker.New()
 	w.taskQueue.MaxRoutineCount = workerCount
 	w.taskQueue.StopedAction = finish
 
 	w.taskQueue.AddHandlerTask(func() {
-		w.runPage(entryURL, w.shouldContinueOnURL, w.configHTMLWorker, w.urlConvert)
+		w.runPage(entryURL, w.pageContentHander, w.shouldContinueOnURL, w.configHTMLWorker, w.urlConvert)
 	})
 }
 
 func (w *Worker) runPage(url string,
+	pageContentHander func(string, *HtmlWorker.Worker),
 	shouldContinueOnURL func(string) bool,
 	configHTMLWorker func(*HtmlWorker.Worker),
 	urlConvert func(string) string) {
@@ -69,7 +74,7 @@ func (w *Worker) runPage(url string,
 					if w.addURLUnVisitedIfNoExist(href) == true {
 						href = urlConvert(href)
 						w.taskQueue.AddHandlerTask(func() {
-							w.runPage(href, w.shouldContinueOnURL, w.configHTMLWorker, w.urlConvert)
+							w.runPage(href, w.pageContentHander, w.shouldContinueOnURL, w.configHTMLWorker, w.urlConvert)
 						})
 					}
 				}
@@ -77,24 +82,29 @@ func (w *Worker) runPage(url string,
 		})
 	})
 
+	fmt.Printf("start fetch %s\n", url)
 	worker := HtmlWorker.New(url, []HtmlWorker.WorkerAction{action})
 	configHTMLWorker(&worker)
 	worker.OnFail = func(err error) {
+		fmt.Printf("Error %s for %s\n", url, err.Error())
 		w.runningCount--
-		if w.runningCount <= 0 {
+		if nil != w.OnFinish && w.runningCount <= 0 {
 			w.OnFinish()
 		}
 	}
 	worker.OnFinish = func() {
+		fmt.Printf("Finish %s\n", url)
+		if nil != w.pageContentHander {
+			w.pageContentHander(url, &worker)
+		}
 		w.runningCount--
-		if w.runningCount <= 0 {
+		if nil != w.OnFinish && w.runningCount <= 0 {
 			w.OnFinish()
 		}
 	}
 
 	w.runningCount++
 
-	fmt.Printf("fetch url %s\n", url)
 	worker.Run()
 }
 

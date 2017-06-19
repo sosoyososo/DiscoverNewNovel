@@ -16,7 +16,7 @@ type ChapterCollection struct {
 var (
 	db                          *mgo.Database
 	novelCollection             *mgo.Collection
-	chapterCollectionCollection *mgo.Collection
+	chapterCollectionCollection *mgo.Collection //保存章节表信息
 	chapterCollections          []ChapterCollection
 )
 
@@ -34,7 +34,7 @@ func GetUukanshuNovelCollection() *mgo.Collection {
 	return novelCollection
 }
 
-func GetChapterCollection(url string) *mgo.Collection {
+func GetUukanshuChapterCollection(url string) *mgo.Collection {
 	createSessionIfNeed()
 	for i := 0; i < len(chapterCollections); i++ {
 		for j := 0; j < len(chapterCollections[i].urls); j++ {
