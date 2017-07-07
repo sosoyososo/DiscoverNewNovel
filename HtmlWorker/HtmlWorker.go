@@ -34,13 +34,14 @@ type WorkerAction struct {
 Worker 通过URL获取html文档，然后进行特定处理
 */
 type Worker struct {
-	URL         string
-	Action      []WorkerAction
-	CookieStrig string
-	document    *goquery.Document
-	Encoder     func(s []byte) ([]byte, error)
-	OnFail      func(err error)
-	OnFinish    func()
+	URL           string
+	Action        []WorkerAction
+	CookieStrig   string
+	document      *goquery.Document
+	Encoder       func(s []byte) ([]byte, error)
+	ConfigRequest func(r *http.Request)
+	OnFail        func(err error)
+	OnFinish      func()
 }
 
 /*
@@ -112,6 +113,9 @@ func (w *Worker) GetUtf8HtmlBytesFromURL() ([]byte, error) {
 				req.AddCookie(&cookie)
 			}
 		}
+	}
+	if nil != w.ConfigRequest {
+		w.ConfigRequest(req)
 	}
 	tr := &http.Transport{
 		DisableCompression: true,

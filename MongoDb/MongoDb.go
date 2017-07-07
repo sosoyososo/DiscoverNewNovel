@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	"fmt"
+
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -42,16 +44,14 @@ func GetUukanshuChapterCollection(url string) *mgo.Collection {
 				return db.C(chapterCollections[i].collectionName)
 			}
 		}
-	}
 
-	/*
-		章节列表collection还不存在,有表不满
-	*/
-	for i := 0; i < len(chapterCollections); i++ {
+		/*
+			章节列表collection还不存在,有表不满
+		*/
 		if len(chapterCollections[i].urls) < maxNovelCountInOneChapterCollection {
 			urls := append(chapterCollections[i].urls, url)
 			chapterCollections[i].urls = urls
-			db.C(chapterCCName).Update(bson.M{"collectionName": chapterCollections[i]}, bson.M{"$set": bson.M{"urls": urls}})
+			db.C(chapterCCName).Update(bson.M{"collectionname": chapterCollections[i]}, bson.M{"$set": bson.M{"urls": urls}})
 			return db.C(chapterCollections[i].collectionName)
 		}
 	}
@@ -66,7 +66,10 @@ func GetUukanshuChapterCollection(url string) *mgo.Collection {
 	chapterCollection.urls = []string{url}
 	chapterCollection.collectionName = newName
 
-	db.C(chapterCCName).Insert(chapterCollection)
+	err := db.C(chapterCCName).Insert(&chapterCollection)
+	if nil != err {
+		fmt.Println(err.Error())
+	}
 	chapterCollections = append(chapterCollections, chapterCollection)
 
 	return db.C(newName)

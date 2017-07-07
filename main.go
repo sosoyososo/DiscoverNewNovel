@@ -28,13 +28,24 @@ TODO:
 1. 发现小说遍历网页的所有操作是异步的，过程中需要判断页面是否遍历过，小说是否存储过。后两者的操作是查询数据库获得的，需要跟前者进行同步
 */
 
-/*
-1.
-*/
 import (
+	"./Test"
 	"./Uukanshu"
+	"./YZY"
 )
 
 func main() {
+	test()
+}
+
+func uukanshu() {
 	Uukanshu.Run()
+}
+
+func yzy() {
+	YZY.Run()
+}
+
+func test() {
+	Test.Run()
 }
