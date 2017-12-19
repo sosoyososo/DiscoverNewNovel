@@ -64,7 +64,7 @@ RunSpider 以某个页面作为入口启动一个蜘蛛，爬取所有的目录�
 */
 func RunSpider(finished func()) {
 	d := Discover.Worker{}
-	d.Run("http://www.uukanshu.net/sitemap/novellist-1.html",
+	d.Run("http://www.uukanshu.com/sitemap/novellist-1.html",
 		20,
 		func(url string) bool {
 			return isInsiteURL(url) == true && isPicURL(url) == false
@@ -170,7 +170,7 @@ func handleNovelInfo(cateURL string, worker *HtmlWorker.Worker) {
 		summary = strings.Trim(summary, "\n")
 		summary = strings.Trim(summary, "－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－－")
 		summary = strings.ToLower(summary)
-		summary = strings.Trim(summary, "http://www.uukanshu.net")
+		summary = strings.Trim(summary, "http://www.uukanshu.com")
 		novelInfo.Summary = summary
 	})
 	authorAction := HtmlWorker.NewAction("dd > h2 > a", func(s *goquery.Selection) {
@@ -201,8 +201,8 @@ func initDb() {
 func isInsiteURL(URL string) bool {
 	if strings.HasPrefix(URL, "/") ||
 		strings.HasPrefix(URL, "../") ||
-		strings.HasPrefix(URL, "http://www.uukanshu.net") ||
-		strings.HasPrefix(URL, "www.uukanshu.net") {
+		strings.HasPrefix(URL, "http://www.uukanshu.com") ||
+		strings.HasPrefix(URL, "www.uukanshu.com") {
 		return true
 	}
 	return false
@@ -218,8 +218,8 @@ func isPicURL(URL string) bool {
 
 func isCatelogURL(URL string) bool {
 	if strings.HasPrefix(URL, "/b") ||
-		strings.HasPrefix(URL, "http://www.uukanshu.net/b") ||
-		strings.HasPrefix(URL, "www.uukanshu.net/b") {
+		strings.HasPrefix(URL, "http://www.uukanshu.com/b") ||
+		strings.HasPrefix(URL, "www.uukanshu.com/b") {
 		if strings.HasSuffix(URL, ".html") {
 			return false
 		}
@@ -236,11 +236,11 @@ func fullURL(url string) string {
 		return url
 	}
 	if strings.HasPrefix(url, "/") {
-		return "http://www.uukanshu.net" + url
+		return "http://www.uukanshu.com" + url
 	}
 	if strings.HasPrefix(url, "./") {
 		url = strings.TrimLeft(url, ".")
-		return "http://www.uukanshu.net" + url
+		return "http://www.uukanshu.com" + url
 	}
 	fmt.Printf("无法处理的url: %s\n", url)
 	return url

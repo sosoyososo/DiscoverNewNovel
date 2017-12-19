@@ -35,7 +35,7 @@ import (
 )
 
 func main() {
-	test()
+	uukanshu()
 }
 
 func uukanshu() {

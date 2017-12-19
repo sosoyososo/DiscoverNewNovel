@@ -26,7 +26,7 @@ func Run() {
 		downloadChapters(urls)
 	})
 
-	worker := HtmlWorker.New("http://www.uukanshu.net/b/43066/", []HtmlWorker.WorkerAction{action})
+	worker := HtmlWorker.New("http://www.uukanshu.com/b/43066/", []HtmlWorker.WorkerAction{action})
 	worker.CookieStrig = "lastread=11356%3D0%3D%7C%7C17203%3D0%3D%7C%7C17151%3D0%3D%7C%7C482%3D0%3D%7C%7C55516%3D10981%3D%u7B2C8%u7AE0%20%u5C38%u53D8; ASP.NET_SessionId=fm1nai0bstdsevx2zoxva3vh; _ga=GA1.2.1243761825.1494000552; _gid=GA1.2.779825662.1496043539; fcip=111"
 	worker.Encoder = func(buffer []byte) ([]byte, error) {
 		return Encoding.GbkToUtf8(buffer)
@@ -66,11 +66,11 @@ func fullURL(url string) string {
 		return url
 	}
 	if strings.HasPrefix(url, "/") {
-		return "http://www.uukanshu.net" + url
+		return "http://www.uukanshu.com" + url
 	}
 	if strings.HasPrefix(url, "./") {
 		url = strings.TrimLeft(url, ".")
-		return "http://www.uukanshu.net" + url
+		return "http://www.uukanshu.com" + url
 	}
 	fmt.Printf("无法处理的url: %s\n", url)
 	return url
