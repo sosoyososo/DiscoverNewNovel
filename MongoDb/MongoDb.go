@@ -4,15 +4,13 @@ import (
 	"strconv"
 	"strings"
 
-	"fmt"
-
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
 
 type ChapterCollection struct {
-	urls           []string
-	collectionName string
+	URLs           []string //collectionName 对应的collection存储内容的小说列表
+	CollectionName string
 }
 
 var (
@@ -23,7 +21,11 @@ var (
 )
 
 const (
-	// 之前测试到一个collection中存储讲经16万章，每个小说假设都有2000章，每个collection可以存储80部小说，在此之上加上翻倍的冗余，每个collection存储40部小说
+	/*
+		之前测试到一个collection中存储讲经16万章，
+		假设每个小说都有2000章，每个collection可以存储80部小说
+		在此之上加上翻倍的冗余，每个collection存储40部小说
+	*/
 	maxNovelCountInOneChapterCollection = 40
 	dbAddress                           = "127.0.0.1:27017"
 	dbName                              = "novel"
@@ -38,38 +40,48 @@ func GetUukanshuNovelCollection() *mgo.Collection {
 
 func GetUukanshuChapterCollection(url string) *mgo.Collection {
 	createSessionIfNeed()
+
 	for i := 0; i < len(chapterCollections); i++ {
-		for j := 0; j < len(chapterCollections[i].urls); j++ {
-			if chapterCollections[i].urls[j] == url {
-				return db.C(chapterCollections[i].collectionName)
+		/*
+			查询是否已经针对这个小说建表
+		*/
+		for j := 0; j < len(chapterCollections[i].URLs); j++ {
+			if chapterCollections[i].URLs[j] == url {
+				return db.C(chapterCollections[i].CollectionName)
 			}
 		}
 
 		/*
-			章节列表collection还不存在,有表不满
+			查询表存储内容是否达到上限
 		*/
-		if len(chapterCollections[i].urls) < maxNovelCountInOneChapterCollection {
-			urls := append(chapterCollections[i].urls, url)
-			chapterCollections[i].urls = urls
-			db.C(chapterCCName).Update(bson.M{"collectionname": chapterCollections[i]}, bson.M{"$set": bson.M{"urls": urls}})
-			return db.C(chapterCollections[i].collectionName)
+		if len(chapterCollections[i].URLs) < maxNovelCountInOneChapterCollection {
+			urls := append(chapterCollections[i].URLs, url)
+			chapterCollections[i].URLs = urls
+
+			chapterName := chapterCollections[i].CollectionName
+			err := db.C(chapterCCName).Update(bson.M{"collectionname": chapterName}, bson.M{"$set": bson.M{"urls": urls}})
+			if nil != err {
+				panic(err)
+			}
+			return db.C(chapterCollections[i].CollectionName)
 		}
 	}
 
 	/*
-		章节列表collection还不存在,无表不满
+		chapterCollections没有内容或者所有collection达到限
 	*/
-
 	chapterCollectionCount := len(chapterCollections)
 	newName := strings.Join([]string{"chapter", strconv.Itoa(chapterCollectionCount + 1)}, "")
+
 	chapterCollection := ChapterCollection{}
-	chapterCollection.urls = []string{url}
-	chapterCollection.collectionName = newName
+	chapterCollection.URLs = []string{url}
+	chapterCollection.CollectionName = newName
 
 	err := db.C(chapterCCName).Insert(&chapterCollection)
 	if nil != err {
-		fmt.Println(err.Error())
+		panic(err)
 	}
+
 	chapterCollections = append(chapterCollections, chapterCollection)
 
 	return db.C(newName)

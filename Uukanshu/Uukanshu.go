@@ -110,21 +110,28 @@ func handleChapterList(cateURL string, worker *HtmlWorker.Worker) {
 			if err == nil {
 				list := make([]ChapterInfo, length)
 				err = query.All(&list)
-				if err == nil && len(list) > 0 {
+				if err == nil {
 					for i := 0; i < len(chapters); i++ {
 						shoudlInsert := true
 						for j := 0; j < len(list); j++ {
-							if list[i].URL == chapters[j].URL {
+							if list[j].URL == chapters[i].URL {
 								shoudlInsert = false
 								break
 							}
 						}
 						if shoudlInsert {
 							chapter := chapters[i]
-							MongoDb.GetUukanshuChapterCollection(cateURL).Insert(chapter)
+							err := MongoDb.GetUukanshuChapterCollection(cateURL).Insert(chapter)
+							if err != nil {
+								panic(err)
+							}
 						}
 					}
+				} else {
+					panic(err)
 				}
+			} else {
+				panic(err)
 			}
 		}
 	})
@@ -178,7 +185,10 @@ func handleNovelInfo(cateURL string, worker *HtmlWorker.Worker) {
 	})
 	worker.HandleActions([]HtmlWorker.WorkerAction{statusAction, titleAction, summaryAction, authorAction, coverAction})
 	novelDbList = append(novelDbList, novelInfo)
-	MongoDb.GetUukanshuNovelCollection().Insert(&novelInfo)
+	err := MongoDb.GetUukanshuNovelCollection().Insert(&novelInfo)
+	if err != nil {
+		panic(err)
+	}
 }
 
 /*
