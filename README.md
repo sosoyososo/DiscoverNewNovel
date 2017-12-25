@@ -23,3 +23,11 @@ golang.org/x/text/transform
 gopkg.in/mgo.v2/bson
 gopkg.in/mgo.v2
 ```
+
+## Other Config
+本地开一个mongodb，所有爬取到的数据会存到这里。
+
+#数据库结构
+所有的小说基本信息存储在名为novels的集合中。
+另有一个总表存储每个小说的章节所在集合的名称。
+其余所有的集合表用来存储章节列表。
